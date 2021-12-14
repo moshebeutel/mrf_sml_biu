@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import random
 
 grid_shape = (5,5)
 
@@ -40,6 +41,21 @@ def p_val_given_blanket(x:np.array, val:int, index:int):
     for j in blanket:
         sum_other_val += phi_by_val(x,other_val,j)
     return sum_val / (sum_val + sum_other_val)
+
+def sample_from_p_val_given_blanket(x:np.array, val:int, index:int):
+    prob = p_val_given_blanket(x,val,index)
+    r = random.rand()
+    return val if prob < r else 1-val
+
+def gibbs_sampling(x:np.array, T:int):
+    samples = np.zeros((grid_shape[0]*grid_shape[1],T))
+    for t in range(T):
+        for i in range(grid_shape(0)*grid_shape(1)):
+            samples[get_row_col(i),t] = sample_from_p_val_given_blanket(x,1,i)
+            # x is updated at every iteration so
+            #     x_i_t is sampled given all x_j<i_t and all x_j>i_t-1  
+            x[get_row_col(i)] = 1. if np.mean(samples[i,0:t+1]) > 0.5 else 0.
+
 
 
 def create_edges(x:np.array):
