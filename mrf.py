@@ -54,16 +54,31 @@ def sample_from_p_val_given_blanket(x:np.array, val:int, index:int):
     r = random.rand()
     return val if prob < r else 1-val
 
-def gibbs_sampling(x:np.array, T:int):
-    samples = np.zeros((grid_size,T))
+def init_x_using_gibbs_sampling(x:np.array, T:int, val:int):
+    x = np.random.randn(grid_size)
+    samples = np.zeros(grid_size,T)
+    for t in range(T):
+        for i in range(grid_size):
+            samples[get_row_col(i),t] = sample_from_p_val_given_blanket(x,val,i)
+            # x is updated at every iteration so
+            #     x_i_t is sampled given all x_j<i_t and all x_j>i_t-1  
+            x[get_row_col(i)] = val if np.mean(samples[i,0:t+1]) > 0.5 else 1-val
+    return x
+
+def estimate_using_gibbs_sampling(x:np.array, T:int, exact_marginals):
+    samples = np.zeros_like(grid_size,T)
+    p_hat = np.zeros_like(grid_size)
+    error = np.zeros_like(grid_size,T)
     for t in range(T):
         for i in range(grid_size):
             samples[get_row_col(i),t] = sample_from_p_val_given_blanket(x,1,i)
-            # x is updated at every iteration so
-            #     x_i_t is sampled given all x_j<i_t and all x_j>i_t-1  
-            x[get_row_col(i)] = 1. if np.mean(samples[i,0:t+1]) > 0.5 else 0.
+            p_hat[i]=  np.mean(samples[i,0:t+1]) 
+        error[:,t] = np.sum(np.square(p_hat - exact_marginals),axis=0)
+    #TODO plot
+    
 
-def p_x_given_y(x:np.array, y:np.array, E:list):
+
+def pseudo_p_x_given_y(x:np.array, y:np.array, E:list):
     sum_phi_x_y = 0
     for i in range(grid_size):
         sum_phi_x_y += phi_x_y(x,y,i)
@@ -75,11 +90,16 @@ def p_x_given_y(x:np.array, y:np.array, E:list):
 
 
 def compute_exact_marginals(y:np.array, E:list, val:int, index:int):
-    x_options = [list(t) for t in (product(*([0,1],)*grid_size)) if t[index]==val]
-    sum = 0
-    for x in x_options:
-        sum += p_x_given_y(x,y,E)
-    return sum
+    x_options = [list(t) for t in (product(*([0,1],)*grid_size))]
+    x_val_options = [l for l in x_options if l[index]==val]
+    x_other_val_options = [l for l in x_options if l[index]==1-val]
+    sum_val = 0
+    sum_other_val = 0
+    for x in x_val_options:
+        sum_val += pseudo_p_x_given_y(x,y,E)
+    for x in x_other_val_options:
+        sum_other_val += pseudo_p_x_given_y(x,y,E)
+    return sum_val / (sum_val + sum_other_val)
 
     
 
