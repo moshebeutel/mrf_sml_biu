@@ -2,6 +2,9 @@ import numpy as np
 from numpy import random
 from numpy.core.fromnumeric import shape
 from itertools import product
+import matplotlib.pyplot as plt
+from datetime import datetime
+
 grid_shape = (5,5)
 grid_size = grid_shape[0]*grid_shape[1]
 
@@ -23,7 +26,7 @@ def get_markov_blanket(i):
     return [get_index_using_row_col(k,l) for k in [row-1,row,row+1] for l in [col -1, col, col + 1] \
          if 0<=k<grid_shape[0] and 0<=l<grid_shape[1]]
 
-def phi_x_x(x:np.array, i:int, j:int):
+def phi_x_x(x:np.array, i:int, j:int)->int:
     irow, icol = get_row_col(i)
     jrow, jcol = get_row_col(j)
     return int(x[irow, icol] == x[jrow, jcol])
@@ -65,6 +68,8 @@ def init_x_using_gibbs_sampling(x:np.array, T:int, val:int):
             x[get_row_col(i)] = val if np.mean(samples[i,0:t+1]) > 0.5 else 1-val
     return x
 
+
+
 def estimate_using_gibbs_sampling(x:np.array, T:int, exact_marginals):
     samples = np.zeros_like(grid_size,T)
     p_hat = np.zeros_like(grid_size)
@@ -75,8 +80,14 @@ def estimate_using_gibbs_sampling(x:np.array, T:int, exact_marginals):
             p_hat[i]=  np.mean(samples[i,0:t+1]) 
         error[:,t] = np.sum(np.square(p_hat - exact_marginals),axis=0)
     #TODO plot
+    plot_error(error, "Gibbs Eampling Estimation Error")
     
-
+def plot_error(error, title):
+    fig = plt.figure()
+    plt.title(title)
+    plt.plot(error)
+    plt.savefig(f'{title} {datetime.utcnow()}')
+    plt.show()
 
 def pseudo_p_x_given_y(x:np.array, y:np.array, E:list):
     sum_phi_x_y = 0
@@ -101,7 +112,16 @@ def compute_exact_marginals(y:np.array, E:list, val:int, index:int):
         sum_other_val += pseudo_p_x_given_y(x,y,E)
     return sum_val / (sum_val + sum_other_val)
 
-    
+def estimate_using_mean_field_approximation(x:np.array, y:np.array, T:int, exact_marginals):
+    q = np.zeros_like(grid_size)
+    error = np.zeros_like(grid_size,T)
+    for t in range(T):
+        for i in range(grid_size):
+            markov_blanket = get_markov_blanket(i)
+            q[i]=  np.exp(phi_x_y(x,y,i)) +  np.sum([q[j]*phi_x_x(i,j) for j in markov_blanket])
+        error[:,t] = np.sum(np.square(q - exact_marginals),axis=0)
+    plot_error(error, "Mean Field Approximation Error")
+
 
 def normal_dequantization(x:np.array):
     y = np.random.normal(loc=x)
