@@ -5,10 +5,9 @@ from itertools import product
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-#mem grid_shape = (5,5)
-grid_shape = (3,3)
+grid_shape = (5,5)
 grid_size = grid_shape[0]*grid_shape[1]
-T = 1000
+T = 100
 default_val = 1
 
 def get_row_col(i):
@@ -36,8 +35,14 @@ def phi_x_x(x:np.array, i:int, j:int)->int:
 
 def phi_x_y(x:np.array, y:np.array ,i:int):
     irow, icol = get_row_col(i)
-    return -0.5*(x[irow,icol] - y[irow, icol])**2.0
+    return -0.5*(x[irow,icol] - y[irow, icol])**2.0 /0.25
+def phi_x_y_other_val(x:np.array, y:np.array ,i:int):
+    irow, icol = get_row_col(i)
+    return -0.5*(1-x[irow,icol] - y[irow, icol])**2.0
 
+def phi_val_y(val:int, y:np.array ,i:int):
+    irow, icol = get_row_col(i)
+    return -0.5*(val - y[irow, icol])**2.0 / 0.25
 
 def phi_by_val(x:np.array, val:int, j:int):
     assert val in [0,1]
@@ -54,6 +59,35 @@ def p_val_given_blanket(x:np.array, val:int, index:int):
     for l in blanket:
         sum_other_val += phi_by_val(x,other_val,l)
     return sum_val / (sum_val + sum_other_val)
+
+def prob_given_balnket_probs(probs:np.array, y:np.array, val:int, index:int):
+    blanket = get_markov_blanket(index)
+    sum_val, sum_other_val = 0.0,0.0
+    for i in blanket:
+        p = probs[i]
+        sum_val += p
+        sum_other_val = 1 - p
+    sum_val += phi_val_y(val, y, index)
+    sum_other_val += phi_val_y(1-val, y,index)
+    return np.exp(sum_val) / (np.exp(sum_val)  + np.exp(sum_other_val))
+
+    
+
+def p_x_given_y(x:np.array, y:np.array, val:int, index:int):
+    blanket = get_markov_blanket(index)
+    sum_val, sum_other_val = 0.0,0.0
+    for k in blanket:
+        sum_val += phi_by_val(x,val,k)
+    assert 0 <= sum_val <= len(blanket)
+    sum_other_val = len(blanket) - sum_val
+    sum_val += phi_val_y(val,y,index)
+    sum_other_val += phi_val_y(1-val,y,index)
+    return np.exp(sum_val) / np.exp(sum_val + sum_other_val)
+
+def sample_from_p_x_given_y(x:np.array,y:np.array, val:int, index:int):
+    prob = p_x_given_y(x,y,val,index)
+    r = random.rand()
+    return val if r < prob else 1-val
 
 def sample_from_p_val_given_blanket(x:np.array, val:int, index:int):
     prob = p_val_given_blanket(x,val,index)
@@ -75,6 +109,13 @@ def init_y_by_x(x:np.array):
     r = np.random.rand(*grid_shape) - 0.5
     return x + r
 
+def get_phi_x_x_blanket(x:np.array, index:int):
+    blanket = get_markov_blanket(index)
+    sum_val = 0
+    for k in blanket:
+        sum_val += phi_x_x(x, index,k)
+    return sum_val
+
 def estimate_using_gibbs_sampling(y:np.array, T:int, exact_marginals):
     x = np.random.randint(low=0, high=2, size = grid_size).reshape(grid_shape)
     samples = np.zeros((grid_size,T))
@@ -82,12 +123,11 @@ def estimate_using_gibbs_sampling(y:np.array, T:int, exact_marginals):
     error = np.zeros((T))
     for t in range(T):
         for i in range(grid_size):
-            samples[i,t] = p_val_given_blanket(x,1,i)
-            samples[i,t] += phi_x_y(x,y,i)
+            samples[i,t] = sample_from_p_x_given_y(x,y,1,i)
+            x[get_row_col(i)] = samples[i,t]
             p_hat[i]=  np.mean(samples[i,0:t+1]) 
-            x[get_row_col(i)] = 1 if random.rand() < p_hat[i] else  0
         error[t] = np.sum(np.square(p_hat - exact_marginals))
-    plot_error(error, "Gibbs Eampling Estimation Error")
+    plot_error(error, "Gibbs Sampling Estimation Error")
     
 def plot_error(error, title):
     fig = plt.figure()
@@ -107,34 +147,31 @@ def pseudo_p_x_given_y(x:np.array, y:np.array, E:list):
 
 
 def compute_exact_marginals(x_options, y:np.array, E:list, val:int, index:int):
-    x_val_options = [l for l in x_options if l[index]==val]
-    x_other_val_options = [l for l in x_options if l[index]==1-val]
     sum_val = 0
     sum_other_val = 0
-    for x in x_val_options:
-        #mem sum_val += pseudo_p_x_given_y(np.array([1]+x).reshape(grid_shape),y,E)
-        #mem sum_val += pseudo_p_x_given_y(np.array([0]+x).reshape(grid_shape),y,E)
-        sum_val += pseudo_p_x_given_y(np.array(x).reshape(grid_shape),y,E)
-    for x in x_other_val_options:
-        #mem sum_other_val += pseudo_p_x_given_y(np.array([1]+x).reshape(grid_shape),y,E)
-        #mem sum_other_val += pseudo_p_x_given_y(np.array([0]+x).reshape(grid_shape),y,E)
-        sum_other_val += pseudo_p_x_given_y(np.array(x).reshape(grid_shape),y,E)
+    print(f'compute_exact_marginals for index {index}')
+    for x in x_options:
+        x_copy = x.copy()
+        x_copy.insert(index,val)
+        sum_val += pseudo_p_x_given_y(np.array(x_copy).reshape(grid_shape),y,E)
+        x_copy[index] = 1 - val
+        sum_other_val += pseudo_p_x_given_y(np.array(x_copy).reshape(grid_shape),y,E)
+        
     return sum_val / (sum_val + sum_other_val)
 
 def compute_exact_marginals_for_x(y:np.array, E:list, val:int):
-    #mem x_options = [list(t) for t in (product(*([0,1],)*(grid_size-1)))]
-    x_options = [list(t) for t in (product(*([0,1],)*(grid_size)))]
+    x_options = [list(t) for t in (product(*([0,1],)*(grid_size-1)))]
+    print(f'There are {len(x_options)} options')
     marginals_list = [compute_exact_marginals(x_options,y,E,val,i) for i in range(grid_size)]
     return np.array(marginals_list)
 
-def estimate_using_mean_field_approximation(x:np.array, y:np.array, T:int, exact_marginals):
-    q = np.zeros_like(grid_size)
-    error = np.zeros_like(grid_size,T)
+def estimate_using_mean_field_approximation(y:np.array, T:int, exact_marginals):
+    q = np.random.uniform(size=grid_size)
+    error = np.zeros((T))
     for t in range(T):
         for i in range(grid_size):
-            markov_blanket = get_markov_blanket(i)
-            q[i]=  np.exp(phi_x_y(x,y,i)) +  np.sum([q[j]*phi_x_x(i,j) for j in markov_blanket])
-        error[:,t] = np.sum(np.square(q - exact_marginals),axis=0)
+            q[i] = prob_given_balnket_probs(q, y, 1, i)
+        error[t] = np.sum(np.square(q - exact_marginals))
     plot_error(error, "Mean Field Approximation Error")
 
 def normal_dequantization(x:np.array):
@@ -164,7 +201,7 @@ E = create_edges(x)
 exact_marginals = compute_exact_marginals_for_x(y,E,default_val)
 print(exact_marginals)
 estimate_using_gibbs_sampling(y,T,exact_marginals)
-print(x)
+estimate_using_mean_field_approximation(y,T,exact_marginals)
 
 
 
